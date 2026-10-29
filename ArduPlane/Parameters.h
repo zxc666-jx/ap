@@ -371,6 +371,7 @@ public:
         k_param_mode_autoland,
         k_param__gcs,
         k_param_custom_control,
+        k_param_allspark,
 
     };
 

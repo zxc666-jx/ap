@@ -9,6 +9,10 @@
 #include <Filter/LowPassFilter.h>
 #include <AP_MSP/msp.h>
 #include <AP_ExternalAHRS/AP_ExternalAHRS.h>
+#include <AP_FaultInjection/AP_FaultInjection_config.h>
+#if AP_FAULT_INJECTION_ENABLED
+#include <AP_FaultInjection/AP_FaultInjection.h>
+#endif
 
 // maximum number of sensor instances
 #ifndef BARO_MAX_INSTANCES
@@ -70,7 +74,15 @@ public:
 
     // pressure in Pascal. Divide by 100 for millibars or hectopascals
     float get_pressure(void) const { return get_pressure(_primary); }
-    float get_pressure(uint8_t instance) const { return sensors[instance].pressure; }
+    float get_pressure(uint8_t instance) const {
+#if AP_FAULT_INJECTION_ENABLED
+        const AP_FaultInjection *fij = AP::fault_injection();
+        if (fij != nullptr) {
+            return fij->apply_pressure(sensors[instance].pressure);
+        }
+#endif
+        return sensors[instance].pressure;
+    }
 #if HAL_BARO_WIND_COMP_ENABLED
     // dynamic pressure in Pascal. Divide by 100 for millibars or hectopascals
     const Vector3f& get_dynamic_pressure(uint8_t instance) const { return sensors[instance].dynamic_pressure; }
@@ -94,13 +106,23 @@ public:
 
     // update the barometer calibration to the current pressure. Can
     // be used for incremental preflight update of baro
-    void update_calibration(void);
+    // recover_uncalibrated additionally accepts fresh, valid raw samples
+    // from sensors missed at boot. Only use during explicit disarmed recovery.
+    void update_calibration(bool recover_uncalibrated = false);
 #endif  // AP_BARO_CALIBRATION_ENABLED
 
     // get current altitude in meters relative to altitude at the time
     // of the last calibrate() call
     float get_altitude(void) const { return get_altitude(_primary); }
-    float get_altitude(uint8_t instance) const { return sensors[instance].altitude; }
+    float get_altitude(uint8_t instance) const {
+#if AP_FAULT_INJECTION_ENABLED
+        const AP_FaultInjection *fij = AP::fault_injection();
+        if (fij != nullptr) {
+            return fij->apply_altitude(sensors[instance].altitude);
+        }
+#endif
+        return sensors[instance].altitude;
+    }
 
     // get altitude above mean sea level
     float get_altitude_AMSL(uint8_t instance) const { return get_altitude(instance) + _field_elevation_active; }

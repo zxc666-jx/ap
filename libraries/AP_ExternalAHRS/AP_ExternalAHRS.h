@@ -75,6 +75,9 @@ public:
 #if AP_EXTERNAL_AHRS_SENSAITION_ENABLED
         SensAItion = 11,
 #endif
+#if AP_EXTERNAL_AHRS_JSBSIM_ENABLED
+        JSBSim = 12,
+#endif
     };
 
     static AP_ExternalAHRS *get_singleton(void) {
@@ -121,6 +124,9 @@ public:
     bool enabled() const;
     bool healthy(void) const;
     bool initialised(void) const;
+
+    // the currently configured backend type
+    DevType get_type(void) const { return (DevType)devtype.get(); }
     bool get_quaternion(Quaternion &quat);
     bool get_origin(Location &loc);
     bool set_origin(const Location &loc);
@@ -178,6 +184,30 @@ public:
         float differential_pressure; // Pa
         float temperature; // degC
     } airspeed_data_message_t;
+
+    // JSBSim model truth (AoA / sideslip / real surfaces / fault), valid only
+    // with the JSBSim backend. Populated by the backend each sensor frame and
+    // consumed by the AllSpark AIRCRAFT_STATE frame.
+    struct JSBSimTruth {
+        bool valid;
+        uint16_t valid_mask;        // field validity bits reported by the model
+        float aoa_deg;
+        float sideslip_deg;
+        int16_t actual_surface_cd[4];
+        uint16_t actual_throttle_permille[2];
+        uint8_t active_fault_count;
+        uint8_t active_fault_mask;
+        uint8_t fault_slot;
+        uint8_t fault_type;
+        uint8_t fault_location;
+        uint8_t fault_state;
+        uint16_t severity_permille;
+        int32_t parameter_1_q10000;
+        int32_t parameter_2_q10000;
+    };
+
+    const JSBSimTruth &get_jsbsim_truth(void) const { return jsbsim_truth; }
+    JSBSimTruth jsbsim_truth = {};
 
     // set GNSS disable for auxillary function GPS_DISABLE
     void set_gnss_disable(bool disable) {

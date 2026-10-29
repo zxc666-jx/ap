@@ -994,6 +994,12 @@ const AP_Param::Info Plane::var_info[] = {
     GOBJECT(custom_control, "CP", AP_CustomControl),
 #endif // AP_PLANE_CUSTOMCONTROL_ENABLED
 
+#if AP_ALLSPARK_ENABLED
+    // @Group: ALLSPK_
+    // @Path: ../libraries/AP_AllSpark/AP_AllSpark.cpp
+    GOBJECT(allspark, "ALLSPK_", AP_AllSpark),
+#endif
+
     AP_VAREND
 };
 

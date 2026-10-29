@@ -49,6 +49,7 @@
 #include <AP_Common/AP_FWVersion.h>
 #include <AP_VisualOdom/AP_VisualOdom.h>
 #include <AP_Baro/AP_Baro.h>
+#include <AP_ExternalAHRS/AP_ExternalAHRS.h>
 #include <AP_EFI/AP_EFI.h>
 #include <AP_Proximity/AP_Proximity.h>
 #include <AP_Scripting/AP_Scripting.h>
@@ -4824,7 +4825,20 @@ MAV_RESULT GCS_MAVLINK::_handle_command_preflight_calibration_baro(const mavlink
 #if AP_BARO_CALIBRATION_ENABLED
     // fast barometer calibration
     GCS_SEND_TEXT(MAV_SEVERITY_INFO, "Updating barometer calibration");
-    AP::baro().update_calibration();
+#if AP_EXTERNAL_AHRS_JSBSIM_ENABLED
+    // A JSBSim stream may start after the boot-time barometer calibration.
+    // Updating only healthy sensors cannot recover an uncalibrated instance.
+    if (AP::externalAHRS().get_type() == AP_ExternalAHRS::DevType::JSBSim &&
+        AP::externalAHRS().healthy() && !AP::baro().all_healthy()) {
+        // The JSBSim UART is serviced in the main loop, so a blocking full
+        // calibration would stop receiving the very samples it needs.
+        AP::baro().update();
+        AP::baro().update_calibration(true);
+    } else
+#endif
+    {
+        AP::baro().update_calibration();
+    }
     GCS_SEND_TEXT(MAV_SEVERITY_INFO, "Barometer calibration complete");
 #endif  // AP_BARO_CALIBRATION_ENABLED
 

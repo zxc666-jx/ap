@@ -93,6 +93,30 @@
 
 #include <AP_IBus_Telem/AP_IBus_Telem.h>
 
+#include <AP_AllSpark/AP_AllSpark.h>
+
+#include <AP_FaultInjection/AP_FaultInjection.h>
+
+#if AP_ALLSPARK_ENABLED
+// an AllSpark guidance command, parsed and range-checked by AP_AllSpark
+struct AllSparkGuidance {
+    Location loc;           // lat/lon always valid when have_position; alt valid when have_altitude
+    bool have_position;
+    bool have_altitude;
+    float airspeed_mps;     // < 0 when not commanded
+    bool have_roll;
+    float roll_deg;         // external roll target
+    bool have_climb;
+    float climb_deg;        // flight path angle, positive climbing
+};
+
+enum class AllSparkGuidanceResult : uint8_t {
+    OK = 0,
+    NOT_GUIDED,     // the vehicle is not in GUIDED; the FC never changes mode itself
+    OUT_OF_RANGE,   // a commanded value is outside what the vehicle accepts
+};
+#endif
+
 class AP_DDS_Client;
 
 class AP_Vehicle : public AP_HAL::HAL::Callbacks {
@@ -127,6 +151,17 @@ public:
     // set_mode *must* set control_mode_reason
     virtual bool set_mode(const uint8_t new_mode, const ModeReason reason) WARN_IF_UNUSED = 0;
     virtual uint8_t get_mode() const = 0;
+
+#if AP_ALLSPARK_ENABLED
+    // apply an AllSpark guidance command (Plane: guided target / external roll
+    // and pitch targets). The vehicle decides whether it is in a state where
+    // the command can be applied.
+    virtual AllSparkGuidanceResult set_allspark_guidance(const AllSparkGuidance &cmd) { return AllSparkGuidanceResult::NOT_GUIDED; }
+    // drop the AllSpark targets (guidance timeout)
+    virtual void clear_allspark_guidance(void) {}
+    // retrieve the vehicle's current navigation target (Plane: next_WP_loc)
+    virtual bool get_allspark_target_location(Location &loc) const { return false; }
+#endif
 
     ModeReason get_control_mode_reason() const {
         return control_mode_reason;
@@ -421,6 +456,14 @@ protected:
 
 #if HAL_HOTT_TELEM_ENABLED
     AP_Hott_Telem hott_telem;
+#endif
+
+#if AP_ALLSPARK_ENABLED
+    AP_AllSpark allspark;
+#endif
+
+#if AP_FAULT_INJECTION_ENABLED
+    AP_FaultInjection fault_injection;
 #endif
 
 #if HAL_VISUALODOM_ENABLED

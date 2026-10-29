@@ -737,6 +737,9 @@ private:
     // has wait_for_sample() found a sample?
     bool _have_sample:1;
 
+    // has any backend delivered a sample since boot?
+    bool _sample_ever_seen:1;
+
     bool _backends_detected:1;
 
     // are gyros or accels currently being calibrated

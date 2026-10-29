@@ -394,7 +394,7 @@ void AP_Baro::calibrate(bool save)
    this updates the baro ground calibration to the current values. It
    can be used before arming to keep the baro well calibrated
 */
-void AP_Baro::update_calibration()
+void AP_Baro::update_calibration(bool recover_uncalibrated)
 {
     const uint32_t now = AP_HAL::millis();
     const bool do_notify = now - _last_notify_ms > 10000;
@@ -402,6 +402,11 @@ void AP_Baro::update_calibration()
         _last_notify_ms = now;
     }
     for (uint8_t i=0; i<_num_sensors; i++) {
+        if (recover_uncalibrated && sensors[i].healthy && sensors[i].alt_ok &&
+            now - sensors[i].last_update_ms < BARO_TIMEOUT_MS &&
+            is_positive(sensors[i].pressure)) {
+            sensors[i].calibrated = true;
+        }
         if (healthy(i)) {
             float corrected_pressure = get_sealevel_pressure(get_pressure(i) + sensors[i].p_correction, _field_elevation_active);
             sensors[i].ground_pressure.set(corrected_pressure);

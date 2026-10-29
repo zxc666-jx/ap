@@ -979,6 +979,7 @@ AP_InertialSensor::init(uint16_t loop_rate)
     _next_sample_usec = 0;
     _last_sample_usec = 0;
     _have_sample = false;
+    _sample_ever_seen = false;
 
 #if AP_INERTIALSENSOR_BATCHSAMPLER_ENABLED
     // initialise IMU batch logging
@@ -2082,6 +2083,19 @@ check_sample:
         // IMUs to come in
         const uint8_t wait_per_loop = 100;
         const uint8_t wait_counter_limit = uint32_t(_loop_delta_t * 1.0e6) / (3*wait_per_loop);
+        // a backend can be registered but never deliver a sample, for example
+        // an ExternalAHRS IMU whose model link is down. Waiting for it forever
+        // freezes the main loop, which also stops the USB and telemetry links
+        // and leaves no way to correct the configuration, so give up instead:
+        // quickly while nothing has ever arrived, and after a longer stall once
+        // samples have started.
+        const uint32_t wait_counter_abort_none = 200;    // ~20ms
+        const uint32_t wait_counter_abort_stall = 5000;  // ~500ms
+#if AP_EXTERNAL_AHRS_JSBSIM_ENABLED
+        const bool jsbsim_imu = AP::externalAHRS().get_type() == AP_ExternalAHRS::DevType::JSBSim &&
+            AP::externalAHRS().get_port(AP_ExternalAHRS::AvailableSensor::IMU) >= 0;
+        const uint32_t sample_wait_start_us = AP_HAL::micros();
+#endif
 
         while (true) {
             for (uint8_t i=0; i<_backend_count; i++) {
@@ -2113,6 +2127,10 @@ check_sample:
                 }
             }
 
+            if (gyro_available_mask || accel_available_mask) {
+                _sample_ever_seen = true;
+            }
+
             // we wait for up to 1/3 of the loop time to get all of the required
             // accel and gyro samples. After that we accept at least
             // one of each
@@ -2130,6 +2148,27 @@ check_sample:
                     // comes back we will start waiting on it again
                     _gyro_wait_mask &= gyro_available_mask;
                     _accel_wait_mask &= accel_available_mask;
+                    break;
+                }
+            }
+
+#if AP_EXTERNAL_AHRS_JSBSIM_ENABLED
+            // A stopped model must not hold the main loop past the ChibiOS
+            // 500ms lockup threshold. Also handle loss of only one sensor type.
+            if (jsbsim_imu && AP_HAL::micros() - sample_wait_start_us >= 20000U) {
+                _gyro_wait_mask &= gyro_available_mask;
+                _accel_wait_mask &= accel_available_mask;
+                break;
+            }
+#endif
+
+            if (!gyro_available_mask && !accel_available_mask) {
+                const uint32_t abort_counter = _sample_ever_seen ? wait_counter_abort_stall : wait_counter_abort_none;
+                if (wait_counter > abort_counter) {
+                    // no backend produced anything: run the loop with no new
+                    // sample rather than blocking the vehicle forever
+                    _gyro_wait_mask = 0;
+                    _accel_wait_mask = 0;
                     break;
                 }
             }

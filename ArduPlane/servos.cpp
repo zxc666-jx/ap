@@ -967,6 +967,12 @@ void Plane::set_servos(void)
     }
 #endif  // AP_ICENGINE_ENABLED
 
+#if AP_FAULT_INJECTION_ENABLED
+    // actuator faults are applied last, once the control loop has produced the
+    // servo outputs, so the mixer below sees the faulted values
+    apply_fault_injection_output();
+#endif
+
     // run output mixer and send values to the hal for output
     servos_output();
 }

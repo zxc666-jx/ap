@@ -482,6 +482,12 @@ void AP_Vehicle::setup()
 #if HAL_HOTT_TELEM_ENABLED
     hott_telem.init();
 #endif
+#if AP_ALLSPARK_ENABLED
+    allspark.init();
+#endif
+#if AP_FAULT_INJECTION_ENABLED
+    fault_injection.init();
+#endif
 #if HAL_VISUALODOM_ENABLED
     // init library used for visual position estimation
     visual_odom.init();

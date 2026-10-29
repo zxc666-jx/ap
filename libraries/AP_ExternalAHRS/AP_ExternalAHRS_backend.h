@@ -61,6 +61,11 @@ protected:
         frontend.set_default_sensors(sensors);
     }
 
+    // set the JSBSim model truth (used by the JSBSim backend)
+    void set_jsbsim_truth(const AP_ExternalAHRS::JSBSimTruth &truth) {
+        frontend.jsbsim_truth = truth;
+    }
+
     /*
       return true if the GNSS is disabled
      */

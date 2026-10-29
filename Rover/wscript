@@ -6,6 +6,8 @@ def build(bld):
         name=vehicle + '_libs',
         ap_vehicle=vehicle,
         ap_libraries=bld.ap_common_vehicle_libraries() + [
+            'AP_AllSpark',
+            'AP_FaultInjection',
             'APM_Control',
             'AP_Mount',
             'AP_Navigation',

@@ -56,6 +56,10 @@
 #include "AP_Airspeed_External.h"
 #include "AP_Airspeed_Scripting.h"
 #include "AP_Airspeed_SITL.h"
+#include <AP_FaultInjection/AP_FaultInjection_config.h>
+#if AP_FAULT_INJECTION_ENABLED
+#include <AP_FaultInjection/AP_FaultInjection.h>
+#endif
 extern const AP_HAL::HAL &hal;
 
 #include <AP_Vehicle/AP_FixedWing.h>
@@ -1010,6 +1014,14 @@ float AP_Airspeed::get_airspeed(uint8_t i) const {
         // we can't have negative airspeed so sending an obviously invalid value
         return -1.0;
     }
+#if AP_FAULT_INJECTION_ENABLED
+    // fault injection is applied at the sensor so that every consumer (TECS,
+    // EKF airspeed fusion, telemetry, arming checks) sees the corrupted value
+    const AP_FaultInjection *fij = AP::fault_injection();
+    if (fij != nullptr) {
+        return fij->apply_airspeed(state[i].airspeed);
+    }
+#endif
     return state[i].airspeed;
 }
 

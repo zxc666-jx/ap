@@ -80,6 +80,15 @@ const AP_Scheduler::Task Plane::scheduler_tasks[] = {
     SCHED_TASK(calc_airspeed_errors,   10,    100,  42),
     SCHED_TASK(update_alt,             10,    200,  45),
     SCHED_TASK(adjust_altitude_target, 10,    200,  48),
+#if AP_ALLSPARK_ENABLED
+    // runs on the main thread: it applies guidance to the navigation state
+    SCHED_TASK(allspark_update,       100,    100,  49),
+#endif
+#if AP_FAULT_INJECTION_ENABLED
+    // priorities must not decrease down the list: this sits between
+    // adjust_altitude_target (48) and afs_fs_check (51)
+    SCHED_TASK(fault_injection_tick,   50,    100,  50),
+#endif
 #if AP_ADVANCEDFAILSAFE_ENABLED
     SCHED_TASK(afs_fs_check,           10,    100,  51),
 #endif

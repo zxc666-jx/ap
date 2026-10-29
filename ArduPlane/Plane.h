@@ -1064,6 +1064,16 @@ private:
     void autotune_enable(bool enable);
     bool fly_inverted(void);
     uint8_t get_mode() const override { return (uint8_t)control_mode->mode_number(); }
+#if AP_ALLSPARK_ENABLED
+    AllSparkGuidanceResult set_allspark_guidance(const AllSparkGuidance &cmd) override;
+    void clear_allspark_guidance(void) override;
+    bool get_allspark_target_location(Location &loc) const override;
+    void allspark_update(void);
+#endif
+#if AP_FAULT_INJECTION_ENABLED
+    void fault_injection_tick(void);
+    void apply_fault_injection_output(void);
+#endif
     Mode *mode_from_mode_num(const enum Mode::Number num);
     bool current_mode_requires_mission() const override {
         return control_mode == &mode_auto;

@@ -92,6 +92,11 @@
 #define AP_SERIALMANAGER_IMUOUT_BUFSIZE_RX     128
 #define AP_SERIALMANAGER_IMUOUT_BUFSIZE_TX     2048
 
+// AllSpark binary protocol
+#define AP_SERIALMANAGER_ALLSPARK_BAUD         115200
+#define AP_SERIALMANAGER_ALLSPARK_BUFSIZE_RX   256
+#define AP_SERIALMANAGER_ALLSPARK_BUFSIZE_TX   256
+
 class AP_SerialManager {
 public:
     AP_SerialManager();
@@ -151,7 +156,8 @@ public:
         // Reserving Serial Protocol 47 for SerialProtocol_IQ
         SerialProtocol_PPP = 48,
         SerialProtocol_IBUS_Telem = 49,                // i-BUS telemetry data, ie via sensor port of FS-iA6B
-        SerialProtocol_IOMCU = 50,                     // IOMCU 
+        SerialProtocol_IOMCU = 50,                     // IOMCU
+        SerialProtocol_AllSpark = 51,                  // Allspark binary telemetry/guidance protocol
         SerialProtocol_NumProtocols                    // must be the last value
     };
 

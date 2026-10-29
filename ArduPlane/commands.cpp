@@ -4,6 +4,10 @@
 
 #include "Plane.h"
 
+#if AP_EXTERNAL_AHRS_ENABLED
+#include <AP_ExternalAHRS/AP_ExternalAHRS.h>
+#endif
+
 /*
  *  set_next_WP - sets the target location the vehicle should fly to
  */
@@ -108,6 +112,153 @@ void Plane::set_guided_WP(const Location &loc)
     // cancel pending takeoff
     quadplane.guided_takeoff = false;
 #endif
+}
+
+// apply an AllSpark guidance command (protocol document section 5).
+//
+// The FC only applies guidance while it is already in GUIDED - it never changes
+// mode or arms itself because of an AllSpark frame. Within GUIDED the command
+// maps onto the existing offboard-guided seams:
+//   lat/lon/alt -> guided waypoint
+//   airspeed    -> guided target airspeed
+//   roll        -> external roll target  (guided_state.forced_rpy_cd.x)
+//   climb angle -> external pitch target (guided_state.forced_rpy_cd.y), using
+//                  target pitch = climb angle + angle of attack
+AllSparkGuidanceResult Plane::set_allspark_guidance(const AllSparkGuidance &cmd)
+{
+    if (control_mode != &mode_guided) {
+        return AllSparkGuidanceResult::NOT_GUIDED;
+    }
+
+    // Validate everything before touching any state. set_guided_WP() cannot be
+    // rolled back, so a command that is going to be rejected must be rejected
+    // before the waypoint moves.
+    if (cmd.airspeed_mps >= 0.0f &&
+        (cmd.airspeed_mps > aparm.airspeed_max || cmd.airspeed_mps < aparm.airspeed_min)) {
+        return AllSparkGuidanceResult::OUT_OF_RANGE;
+    }
+
+    if (cmd.have_position) {
+        Location loc = cmd.loc;
+        if (!cmd.have_altitude) {
+            // no altitude commanded: hold the current altitude
+            loc.set_alt_cm(current_loc.alt, Location::AltFrame::ABOVE_HOME);
+        }
+        set_guided_WP(loc);
+    }
+
+    if (cmd.airspeed_mps >= 0.0f) {
+        // the envelope was checked above
+        mode_guided.handle_change_airspeed(cmd.airspeed_mps, 0.1f);
+    }
+
+    // millis() is zero only in the first tick after boot; keep the timestamp
+    // non-zero because zero is what disables the forced-rpy override
+    const uint32_t now_ms = MAX(millis(), 1U);
+
+    if (cmd.have_roll) {
+        guided_state.forced_rpy_cd.x = (int32_t)(cmd.roll_deg * 100.0f);
+        guided_state.last_forced_rpy_ms.x = now_ms;
+    }
+
+    if (cmd.have_climb) {
+        float aoa_deg = 0.0f;
+#if AP_EXTERNAL_AHRS_ENABLED
+        const AP_ExternalAHRS::JSBSimTruth &truth = AP::externalAHRS().get_jsbsim_truth();
+        if (truth.valid) {
+            aoa_deg = truth.aoa_deg;
+        }
+#endif
+        guided_state.forced_rpy_cd.y = (int32_t)((cmd.climb_deg + aoa_deg) * 100.0f);
+        guided_state.last_forced_rpy_ms.y = now_ms;
+    }
+
+    return AllSparkGuidanceResult::OK;
+}
+
+// drop the AllSpark targets after a guidance timeout. The flight mode is left
+// to the operator: an RC mode switch may be holding GUIDED, and reverting it
+// here would just fight the switch.
+void Plane::clear_allspark_guidance(void)
+{
+    guided_state.last_forced_rpy_ms.x = 0;
+    guided_state.last_forced_rpy_ms.y = 0;
+    guided_state.target_airspeed_cm = -1;
+}
+
+// retrieve the current navigation target (next waypoint / guided WP)
+bool Plane::get_allspark_target_location(Location &loc) const
+{
+    loc = next_WP_loc;
+    return true;
+}
+
+// scheduler task: AllSpark parsing and command handling run on the main thread
+// so that they share the navigation state with the flight loop
+void Plane::allspark_update(void)
+{
+    AP_AllSpark *link = AP::allspark();
+    if (link != nullptr) {
+        link->update();
+    }
+}
+
+// periodic fault-injection engine update. The effects are applied where they
+// belong: sensor faults in AP_Airspeed/AP_Baro, and throttle/surface faults in
+// apply_fault_injection_output(), which runs at the end of set_servos().
+void Plane::fault_injection_tick(void)
+{
+    AP_FaultInjection *fij = AP::fault_injection();
+    if (fij == nullptr) {
+        return;
+    }
+    fij->update();
+}
+
+// Apply the actuator-side faults. This must run after the control loop has
+// produced the servo outputs and before the mixer turns them into PWM,
+// otherwise the next loop iteration would overwrite the faulted values.
+void Plane::apply_fault_injection_output(void)
+{
+    AP_FaultInjection *fij = AP::fault_injection();
+    if (fij == nullptr || !fij->any_active()) {
+        return;
+    }
+
+    const struct {
+        SRV_Channel::Function func;
+        AP_FaultInjection::Surface surf;
+    } surfaces[] = {
+        { SRV_Channel::k_aileron,  AP_FaultInjection::Surface::AILERON },
+        { SRV_Channel::k_elevator, AP_FaultInjection::Surface::ELEVATOR },
+        { SRV_Channel::k_rudder,   AP_FaultInjection::Surface::RUDDER },
+    };
+
+    // the protocol commands a jam angle in degrees; the airframe's full-scale
+    // deflection is not known to the FC, so 45 deg is used as the reference
+    // that maps onto the scaled (-100..100) servo command
+    static constexpr float SURFACE_FULL_DEFLECTION_DEG = 45.0f;
+
+    for (const auto &s : surfaces) {
+        const float jam_deg = fij->get_surface_offset_deg(s.surf);
+        if (!is_zero(jam_deg)) {
+            // a jam overrides the commanded deflection entirely
+            const float jam_scaled = constrain_float(jam_deg / SURFACE_FULL_DEFLECTION_DEG * 100.0f, -100.0f, 100.0f);
+            SRV_Channels::set_output_scaled(s.func, jam_scaled);
+            continue;
+        }
+        const float scale = fij->get_surface_scale(s.surf);
+        if (scale < 1.0f) {
+            SRV_Channels::set_output_scaled(s.func, SRV_Channels::get_output_scaled(s.func) * scale);
+        }
+    }
+
+    // thrust-loss faults scale the throttle demand
+    const float thr_scale = fij->get_throttle_scale();
+    if (thr_scale < 1.0f) {
+        SRV_Channels::set_output_scaled(SRV_Channel::k_throttle,
+                                        SRV_Channels::get_output_scaled(SRV_Channel::k_throttle) * thr_scale);
+    }
 }
 
 /*
